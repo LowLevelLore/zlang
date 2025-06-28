@@ -575,7 +575,7 @@ namespace zust {
         return s + "h";
     }
 
-    void CodeGenWindows::emitPrologue(std::shared_ptr<ScopeContext> scope, std::ostringstream &out) {
+    void CodeGenWindows::emitPrologue(std::shared_ptr<ScopeContext> scope, std::ostringstream &out, bool savedCalleeSavedRegisters) {
         if (scope->kind() != "Function")
             return;
 
@@ -625,7 +625,7 @@ namespace zust {
             out << "    movdqu  [rsp], " << reg << "\n";
         }
     }
-    void CodeGenWindows::emitEpilogue(std::shared_ptr<ScopeContext> scope, std::ostringstream &out, bool clearRax) {
+    void CodeGenWindows::emitEpilogue(std::shared_ptr<ScopeContext> scope, std::ostringstream &out, bool clearRax, bool restoreCalleeSavedRegisters) {
         if (scope->kind() != "Function")
             return;
 
@@ -1250,12 +1250,14 @@ namespace zust {
         // Build body before prologue so we can prefix it
         std::ostringstream paramInit, body;
 
+        // TODO: Only save and restore callee saved registers which are modified.
+
         size_t gpIdx = 0, xmmIdx = 0, stackArgOffset = 0;
         for (auto &p : fnInfo.paramTypes) {
             TypeInfo ti = node->scope->lookupType(p.type);
             bool isFlt = ti.isFloat;
             int64_t slotOff = std::abs(bodyNode->scope->getVariableOffset(p.name));
-
+            bodyNode->scope->defineParameterVariable(p.name, {.type = p.type, .isValueKnown = false, .isConst = false, .value = "", .isFunctionParameter = true, .parameterInRegister = ""});
             // Select MOV instruction
             std::string movInst;
             if (isFlt)

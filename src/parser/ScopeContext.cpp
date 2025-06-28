@@ -32,6 +32,54 @@ namespace zust {
     void ScopeContext::defineType(const std::string &name, const TypeInfo &info) {
         types_[name] = info;
     }
+    bool ScopeContext::defineParameterVariable(const std::string &name, const VariableInfo &info) {
+        assert(kind() == "Function");
+        std::shared_ptr<FunctionScope> parentFunction = findEnclosingFunctionScope();
+        if (parentFunction->lookupVariableInCurrentContext(name).has_value()) {
+            return false;
+        }
+        parentFunction->vars_[name] = info;
+        parentFunction->variable_name_mappings[name] = GLOBAL_NAME_MAPPER.mapVariable(name, name_);
+        return true;
+    }
+    void ScopeContext::defineParameter(const std::string &name, VariableInfo &info, CodegenOutputFormat format) {
+        assert(kind() == "Function");
+        std::shared_ptr<FunctionScope> parentFunction = findEnclosingFunctionScope();
+        if (!parentFunction->lookupVariableInCurrentContext(name).has_value()) {
+            throw std::runtime_error("Parameter " + name + ": Not defined, in scope: " + parentFunction->name_);
+        }
+        const std::vector<std::string> &XMM_POOL = (format == CodegenOutputFormat::X86_64_LINUX ? ARG_XMM_LINUX : ARG_XMM_MSVC);
+        const std::vector<std::string> &GPR_POOL = (format == CodegenOutputFormat::X86_64_LINUX ? ARG_GPR_LINUX : ARG_GPR_MSVC);
+        TypeInfo ti = lookupType(info.type);
+        if (ti.isFloat) {
+            // USE XMMs
+            if (parentFunction->xmmCount < XMM_POOL.size()) {
+                info.parameterInRegister = XMM_POOL[parentFunction->xmmCount];
+                parentFunction->parameterRegisters.insert(info.parameterInRegister);
+                info.parameterIsOnStack = false;
+                parentFunction->xmmCount++;
+            } else {
+                std::int64_t offset = allocateStack(name, ti);
+                info.parameterIsOnStack = true;
+                offsetTable_[name] = offset;
+            }
+        } else {
+            // USE GPRs
+            if (parentFunction->gpCount < GPR_POOL.size()) {
+                info.parameterInRegister = GPR_POOL[parentFunction->gpCount];
+                parentFunction->parameterRegisters.insert(info.parameterInRegister);
+                info.parameterIsOnStack = false;
+                parentFunction->gpCount++;
+            } else {
+                std::int64_t offset = allocateStack(name, ti);
+                info.parameterIsOnStack = true;
+                offsetTable_[name] = offset;
+            }
+        }
+        parentFunction->vars_[name] = info;
+        parentFunction->paramCount++;
+        logMessage("Defined Parameter");
+    }
     VariableInfo ScopeContext::lookupVariable(const std::string &name) const {
         auto it = vars_.find(name);
         if (it != vars_.end()) {
@@ -44,6 +92,21 @@ namespace zust {
                 return parent_->parent_->lookupVariable(name);
             }
             return parent_->lookupVariable(name);
+        }
+        throw std::runtime_error("Undefined variable: " + name);
+    }
+    void ScopeContext::editVariable(const std::string &name, const VariableInfo &info) {
+        auto it = vars_.find(name);
+        if (it != vars_.end()) {
+            vars_[name] = info;
+            return;
+        }
+        if (parent_) {
+            if (this->kind() == "Function" && parent_->kind() == "Function" &&
+                parent_->parent_) {
+                return parent_->parent_->editVariable(name, info);
+            }
+            return parent_->editVariable(name, info);
         }
         throw std::runtime_error("Undefined variable: " + name);
     }
@@ -233,9 +296,9 @@ namespace zust {
             numStr.erase(numStr.find_last_not_of(" \t") + 1);
 
             offset = std::stoll(numStr);
-            if (op == '-') offset = -offset;
-        }
-        else {
+            if (op == '-')
+                offset = -offset;
+        } else {
             // existing style: "(<offset>)", e.g. "-8(rbp)"
             auto paren = slot.find('(');
             if (paren == std::string::npos)

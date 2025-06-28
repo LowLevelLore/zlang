@@ -32,6 +32,19 @@ namespace zust {
         return reg;
     }
 
+    void RegisterAllocator::allocate_specific(std::string reg) {
+        bool isXmm = reg.starts_with("xmm");
+        std::vector<std::string> pool = isXmm ? availableXMM : available;
+        if (pool.empty()) {
+            throw std::runtime_error("No free general-purpose registers available");
+        }
+        std::unordered_set<std::string> usage_tracker = isXmm ? inUseXMM : inUse;
+        std::list<std::string> lru = isXmm ? lruXMMRegs : lruRegs;
+        std::erase(pool, reg);
+        usage_tracker.insert(reg);
+        lru.push_back(reg);
+    }
+
     bool RegisterAllocator::isInUse(std::string reg) {
         return inUse.find(reg) != inUse.end();
     }

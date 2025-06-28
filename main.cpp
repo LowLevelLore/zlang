@@ -37,7 +37,7 @@ int main(int argc, char *argv[]) {
     std::optional<std::string> source = zust::File::readAllText(inputFile);
     if (!source) {
         logError(zust::Error(zust::ErrorType::Generic,
-                              "Failed to read from " + inputFile));
+                             "Failed to read from " + inputFile));
         return 1;
     }
 
@@ -56,7 +56,9 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     if (cli.printAST()) {
+        std::cout << zust::colors::RED << std::endl;
         program.get()->print(std::cout);
+        std::cout << zust::colors::RESET << std::endl;
     }
 
     logMessage("TypeChecking");
@@ -64,6 +66,19 @@ int main(int argc, char *argv[]) {
     // Type checking
     TypeChecker typeChecker;
     typeChecker.check(program);
+
+    logMessage("Optimizing AST");
+
+    // ASTOptimizer optimizer;
+    // program = optimizer.optimize(std::move(program));
+
+    if (cli.printAST()) {
+        std::cout << zust::colors::GREEN << std::endl;
+        program.get()->print(std::cout);
+        std::cout << zust::colors::RESET << std::endl;
+    }
+
+    // program->scope->printScope(std::cout, 0);
 
     logMessage("Code Genning");
 

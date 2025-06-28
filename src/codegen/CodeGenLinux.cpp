@@ -98,8 +98,11 @@ namespace zust {
     std::string CodeGenLinux::allocateOrSpill(bool isXMM, std::shared_ptr<ScopeContext> scope, std::ostringstream &out) {
         try {
             std::string reg = isXMM ? alloc.allocateXMM() : alloc.allocate();
-            if (!reg.empty())
+            if (!reg.empty()) {
+                auto result_scope = scope->findEnclosingFunctionScope();
+                result_scope->registersInUse.insert(reg);
                 return reg;
+            }
         } catch (...) {
             auto result_scope = scope->findEnclosingFunctionScope();
             if (!result_scope) {
@@ -149,7 +152,7 @@ namespace zust {
     std::string CodeGenLinux::generateIntegerLiteral(std::unique_ptr<ASTNode> node, std::ostringstream &out) {
         TypeInfo intType = node->scope->lookupType("int64_t");
         std::string r = allocateOrSpill(false, node->scope, out);
-        out << "    movq $" << node->value << ", %" << r << "\n";
+        out << "    movq   $" << node->value << ", %" << r << "\n";
         noteType(r, intType);
         return r;
     }
@@ -167,7 +170,7 @@ namespace zust {
                                  : node->scope->lookupType("double");
         std::string r_xmm = allocateOrSpill(true, node->scope, out);
         out << "    " << (isF32 ? "movss" : "movsd")
-            << " " << lbl << "(%rip), %" << r_xmm << "\n";
+            << "   " << lbl << "(%rip), %" << r_xmm << "\n";
         noteType(r_xmm, floatType);
         return r_xmm;
     }
@@ -178,7 +181,7 @@ namespace zust {
                         << lbl << ": .asciz \"" << str << "\"\n";
         TypeInfo strType = node->scope->lookupType("string");
         std::string r = allocateOrSpill(false, node->scope, out);
-        out << "    leaq " << lbl << "(%rip), %" << r << "\n";
+        out << "    leaq   " << lbl << "(%rip), %" << r << "\n";
         noteType(r, strType);
         return r;
     }
@@ -187,7 +190,7 @@ namespace zust {
         std::string r = allocateOrSpill(false, node->scope, out);
 
         // Move immediate 1 or 0
-        out << "    movq $" << (node->value == "true" ? "1" : "0")
+        out << "    movq   $" << (node->value == "true" ? "1" : "0")
             << ", %" << r << "\n";
         noteType(r, boolType);
         return r;
@@ -197,13 +200,12 @@ namespace zust {
         std::string name = node->value;
         TypeInfo ti = scope.lookupType(scope.lookupVariable(name).type);
         uint64_t sz = ti.bits / 8;
-
         if (scope.isGlobalVariable(name)) {
             if (ti.isFloat) {
                 // Allocate or spill an XMM reg
                 std::string r_xmm = allocateOrSpill(true, node->scope, out);
                 out << "    " << (sz == 4 ? "movss" : "movsd")
-                    << " " << name << "(%rip), %" << r_xmm << "\n";
+                    << "   " << name << "(%rip), %" << r_xmm << "\n";
                 noteType(r_xmm, ti);
                 return r_xmm;
             } else {
@@ -211,25 +213,30 @@ namespace zust {
                 std::string r = allocateOrSpill(false, node->scope, out);
                 std::string adj = adjustReg(r, ti.bits);
                 out << "    " << getCorrectMove(sz, false)
-                    << " " << name << "(%rip), %" << adj << "\n";
+                    << "   " << name << "(%rip), %" << adj << "\n";
                 noteType(r, ti);
                 return r;
             }
         } else {
-            int64_t off = scope.getVariableOffset(name);
-            if (ti.isFloat) {
-                std::string r_xmm = allocateOrSpill(true, node->scope, out);
-                out << "    " << (sz == 4 ? "movss" : "movsd")
-                    << " " << std::to_string(off) << "(%rbp), %" << r_xmm << "\n";
-                noteType(r_xmm, ti);
-                return r_xmm;
+            VariableInfo vi = scope.lookupVariable(name);
+            if (vi.isFunctionParameter && !vi.parameterIsOnStack) {
+                return vi.parameterInRegister;
             } else {
-                std::string r = allocateOrSpill(false, node->scope, out);
-                std::string adj = adjustReg(r, ti.bits);
-                out << "    " << getCorrectMove(sz, false)
-                    << " " << std::to_string(off) << "(%rbp), %" << adj << "\n";
-                noteType(r, ti);
-                return r;
+                int64_t off = scope.getVariableOffset(name);
+                if (ti.isFloat) {
+                    std::string r_xmm = allocateOrSpill(true, node->scope, out);
+                    out << "    " << (sz == 4 ? "movss" : "movsd")
+                        << "   " << std::to_string(off) << "(%rbp), %" << r_xmm << "\n";
+                    noteType(r_xmm, ti);
+                    return r_xmm;
+                } else {
+                    std::string r = allocateOrSpill(false, node->scope, out);
+                    std::string adj = adjustReg(r, ti.bits);
+                    out << "    " << getCorrectMove(sz, false)
+                        << "   " << std::to_string(off) << "(%rbp), %" << adj << "\n";
+                    noteType(r, ti);
+                    return r;
+                }
             }
         }
     }
@@ -258,13 +265,13 @@ namespace zust {
             std::string vsuf = isF32 ? "ss" : "sd";
             // Perform floating-point operation
             if (op == "+")
-                out << "    add" << vsuf << " %" << rr << ", %" << rl << "\n";
+                out << "    add" << vsuf << "  %" << rr << ", %" << rl << "\n";
             else if (op == "-")
-                out << "    sub" << vsuf << " %" << rr << ", %" << rl << "\n";
+                out << "    sub" << vsuf << "  %" << rr << ", %" << rl << "\n";
             else if (op == "*")
-                out << "    mul" << vsuf << " %" << rr << ", %" << rl << "\n";
+                out << "    mul" << vsuf << "  %" << rr << ", %" << rl << "\n";
             else if (op == "/")
-                out << "    div" << vsuf << " %" << rr << ", %" << rl << "\n";
+                out << "    div" << vsuf << "  %" << rr << ", %" << rl << "\n";
             else if (assembly_comparison_operations.count(op)) {
                 out << "    ucomi" << vsuf << " %" << rr << ", %" << rl << "\n"
                     << "    " << assembly_comparison_operations.at(op) << " %al\n";
@@ -293,36 +300,36 @@ namespace zust {
 
         if (op == "+" || op == "-" || op == "*" || op == "/") {
             if (op == "+")
-                out << "    add" << suf << " %" << adj_r << ", %" << adj_l << "\n";
+                out << "    add" << suf << "   %" << adj_r << ", %" << adj_l << "\n";
             else if (op == "-")
-                out << "    sub" << suf << " %" << adj_r << ", %" << adj_l << "\n";
+                out << "    sub" << suf << "   %" << adj_r << ", %" << adj_l << "\n";
             else if (op == "*")
-                out << "    imul" << suf << " %" << adj_r << ", %" << adj_l << "\n";
+                out << "    imul" << suf << "   %" << adj_r << ", %" << adj_l << "\n";
             else /* div */ {
                 // division requires special setup
                 if (tr.isSigned) {
                     if (tr.bits == 32) {
-                        out << "    movl %" << adj_l << ", %eax\n"
+                        out << "    movl   %" << adj_l << ", %eax\n"
                             << "    cltd\n"
-                            << "    idivl %" << adj_r << "\n"
-                            << "    movl %eax, %" << adj_l << "\n";
+                            << "    idivl   %" << adj_r << "\n"
+                            << "    movl   %eax, %" << adj_l << "\n";
                     } else {
-                        out << "    movq %" << adj_l << ", %rax\n"
+                        out << "    movq   %" << adj_l << ", %rax\n"
                             << "    cqo\n"
-                            << "    idivq %" << adj_r << "\n"
-                            << "    movq %rax, %" << adj_l << "\n";
+                            << "    idivq  %" << adj_r << "\n"
+                            << "    movq   %rax, %" << adj_l << "\n";
                     }
                 } else {
                     if (tr.bits == 32) {
-                        out << "    movl %" << adj_l << ", %eax\n"
-                            << "    clrl %edx\n"
-                            << "    divl %" << adj_r << "\n"
-                            << "    movl %eax, %" << adj_l << "\n";
+                        out << "    movl   %" << adj_l << ", %eax\n"
+                            << "    clrl   %edx\n"
+                            << "    divl   %" << adj_r << "\n"
+                            << "    movl   %eax, %" << adj_l << "\n";
                     } else {
-                        out << "    movq %" << adj_l << ", %rax\n"
-                            << "    xorq %rdx, %rdx\n"
-                            << "    divq %" << adj_r << "\n"
-                            << "    movq %rax, %" << adj_l << "\n";
+                        out << "    movq   %" << adj_l << ", %rax\n"
+                            << "    xorq   %rdx, %rdx\n"
+                            << "    divq   %" << adj_r << "\n"
+                            << "    movq   %rax, %" << adj_l << "\n";
                     }
                 }
                 alloc.free(rr);
@@ -336,9 +343,9 @@ namespace zust {
 
         // Integer comparison
         if (assembly_comparison_operations.count(op)) {
-            auto &map = tr.isSigned ? assembly_comparison_operations : /* unsigned map here */ assembly_comparison_operations;
-            out << "    cmp" << suf << " %" << adj_r << ", %" << adj_l << "\n"
-                << "    " << map.at(op) << " %al\n";
+            auto &map = tr.isSigned ? assembly_comparison_operations : assembly_comparison_operations_unsigned;
+            out << "    cmp" << suf << "   %" << adj_r << ", %" << adj_l << "\n"
+                << "    " << map.at(op) << "  %al\n";
             TypeInfo boolType = node->scope->lookupType("boolean");
             std::string r_bool = allocateOrSpill(false, node->scope, out);
             out << "    movzbq %al, %" << r_bool << "\n";
@@ -411,6 +418,7 @@ namespace zust {
         return adj;
     }
     std::string CodeGenLinux::emitExpression(std::unique_ptr<ASTNode> node, std::ostringstream &out) {
+        node->print(std::cout, 0);
         switch (node->type) {
         case NodeType::IntegerLiteral:
             return generateIntegerLiteral(std::move(node), out);
@@ -433,7 +441,7 @@ namespace zust {
         }
     }
 
-    void CodeGenLinux::emitPrologue(std::shared_ptr<ScopeContext> scope, std::ostringstream &out) {
+    void CodeGenLinux::emitPrologue(std::shared_ptr<ScopeContext> scope, std::ostringstream &out, bool saveCalleeSavedRegisters) {
         if (scope->kind() == "Function") {
             out << "    # Function Prologue\n";
             out << "    push   %rbp\n";
@@ -443,7 +451,7 @@ namespace zust {
             if (!funcScope)
                 throw std::runtime_error("Expected FunctionScope for function prologue");
 
-            size_t regsCount = CALLEE_GPR_LINUX.size();
+            size_t regsCount = 0;
             std::uint64_t spillSize = std::abs(funcScope->getSpillSize());
             std::uint64_t localSize = std::abs(funcScope->getStackOffset());
             std::uint64_t rawSize = 8 + localSize + spillSize;
@@ -451,32 +459,35 @@ namespace zust {
 
             std::string canaryReg = allocateOrSpill(false, scope, out);
             out << std::hex
-                << "    movabs $0x" << funcScope->getCanary() << ", %" << canaryReg << "    # load canary\n"
+                << "    movabs $0x" << funcScope->getCanary() << ", %" << canaryReg << "\n"
                 << std::dec
-                << "    movq   %" << canaryReg << ", -8(%rbp)    # store canary at [rbp - 8]\n";
+                << "    movq   %" << canaryReg << ", -8(%rbp)\n";
             alloc.free(canaryReg);
 
             if (stackReserve > 0) {
-                out << "    sub    $" << stackReserve << ", %rsp    # reserve locals + spills\n";
+                out << "    sub    $" << stackReserve << ", %rsp\n";
             }
 
-            for (const auto &reg : CALLEE_GPR_LINUX) {
-                out << "    push   %" << reg << "    # save callee-saved GPR\n";
-            }
-            if (regsCount & 1) {
-                out << "    push   %" << CALLEE_GPR_LINUX.back() << "    # just for alignment\n";
+            if (saveCalleeSavedRegisters) {
+                for (const auto &reg : CALLEE_GPR_LINUX) {
+                    if (funcScope->registersInUse.find(reg) != funcScope->registersInUse.end() || funcScope->parameterRegisters.find(reg) != funcScope->registersInUse.end()) {
+                        out << "    push   %" << reg << "\n";
+                        regsCount++;
+                    }
+                }
+                if (regsCount & 1) {
+                    out << "    push   %" << CALLEE_GPR_LINUX.back() << "\n";
+                }
             }
         }
     }
-    void CodeGenLinux::emitEpilogue(std::shared_ptr<ScopeContext> scope, std::ostringstream &out, bool clearRax) {
+    void CodeGenLinux::emitEpilogue(std::shared_ptr<ScopeContext> scope, std::ostringstream &out, bool clearRax, bool restoreCalleeSavedRegisters) {
         if (scope->kind() == "Function") {
-            out << "    # Function Epilogue with Canary Check\n";
-
             auto funcScope = std::dynamic_pointer_cast<FunctionScope>(scope);
             if (!funcScope)
                 throw std::runtime_error("Expected FunctionScope for function epilogue");
 
-            size_t regsCount = CALLEE_GPR_LINUX.size();
+            size_t regsCount = 0;
             std::uint64_t spillSize = std::abs(funcScope->getSpillSize());
             std::uint64_t localSize = std::abs(funcScope->getStackOffset());
             std::uint64_t rawSize = 8 + localSize + spillSize;
@@ -484,32 +495,42 @@ namespace zust {
 
             std::string regStored = allocateOrSpill(false, scope, out);
             std::string regExpected = allocateOrSpill(false, scope, out);
-            out << "    movq   -8(%rbp), %" << regStored << "    # load stored canary\n"
+            out << "    movq   -8(%rbp), %" << regStored << "\n"
                 << std::hex
-                << "    movabs $0x" << funcScope->getCanary() << ", %" << regExpected << "    # load expected canary\n"
+                << "    movabs $0x" << funcScope->getCanary() << ", %" << regExpected << "\n"
                 << std::dec
-                << "    cmp    %" << regExpected << ", %" << regStored << "    # compare canary\n"
-                << "    jne    __stack_smash_detected    # abort on mismatch\n";
+                << "    cmp    %" << regExpected << ", %" << regStored << "\n"
+                << "    jne    __stack_smash_detected\n";
             alloc.free(regStored);
             alloc.free(regExpected);
 
             if (stackReserve > 0) {
-                out << "    add    $" << stackReserve << ", %rsp    # free locals + spills\n";
+                out << "    add    $" << stackReserve << ", %rsp\n";
             }
 
-            if (regsCount & 1) {
-                out << "    pop    %" << CALLEE_GPR_LINUX.back() << "    # pop alignment\n";
-            }
+            if (restoreCalleeSavedRegisters) {
+                std::stringstream before, after;
 
-            for (auto it = CALLEE_GPR_LINUX.rbegin(); it != CALLEE_GPR_LINUX.rend(); ++it) {
-                out << "    pop    %" << *it << "    # restore callee-saved GPR\n";
+                for (auto it = CALLEE_GPR_LINUX.rbegin(); it != CALLEE_GPR_LINUX.rend(); ++it) {
+                    if (funcScope->registersInUse.find(*it) != funcScope->registersInUse.end() || funcScope->parameterRegisters.find(*it) != funcScope->registersInUse.end()) {
+                        after << "    pop    %" << *it << "\n";
+                        regsCount++;
+                    }
+                }
+
+                if (regsCount & 1) {
+                    before << "    pop    %" << CALLEE_GPR_LINUX.back() << "\n";
+                }
+
+                out << before.str() << "\n"
+                    << after.str() << "\n";
             }
 
             if (clearRax) {
                 out << "    xor    %rax, %rax\n";
             }
 
-            out << "    leave    # restore RSP, pop RBP\n";
+            out << "    leave\n";
             out << "    ret\n";
         }
     }
@@ -592,10 +613,10 @@ namespace zust {
                                : std::to_string(scp.getVariableOffset(nm)) + "(%rbp)";
 
         if (ti.isFloat) {
-            out << "    " << (sz == 4 ? "movss %" : "movsd %") << r << ", " << addr << "\n";
+            out << "    " << (sz == 4 ? "movss %" : "movsd   %") << r << ", " << addr << "\n";
         } else {
             std::string adj = adjustReg(r, ti.bits);
-            out << "    " << getCorrectMove(sz, false) << " %" << adj << ", " << addr << "\n";
+            out << "    " << getCorrectMove(sz, false) << "   %" << adj << ", " << addr << "\n";
         }
 
         alloc.free(r);
@@ -608,12 +629,12 @@ namespace zust {
 
         auto emitStore = [&](const std::string &r) {
             if (ti.isFloat) {
-                out << "    " << (sz == 4 ? "movss %" : "movsd %") << r << ", "
+                out << "    " << (sz == 4 ? "movss   %" : "movsd   %") << r << ", "
                     << (scp.isGlobalVariable(nm) ? nm + "(%rip)" : std::to_string(scp.getVariableOffset(nm)) + "(%rbp)")
                     << "\n";
             } else {
                 std::string adj = adjustReg(r, ti.bits);
-                out << "    " << getCorrectMove(sz, false) << " %" << adj << ", "
+                out << "    " << getCorrectMove(sz, false) << "   %" << adj << ", "
                     << (scp.isGlobalVariable(nm) ? nm + "(%rip)" : std::to_string(scp.getVariableOffset(nm)) + "(%rbp)")
                     << "\n";
             }
@@ -629,12 +650,12 @@ namespace zust {
         } else {
             if (ti.isFloat) {
                 auto r_xmm = allocateOrSpill(true, statement->scope, out);
-                out << "    pxor %" << r_xmm << ", %" << r_xmm << "\n";
+                out << "    pxor   %" << r_xmm << ", %" << r_xmm << "\n";
                 emitStore(r_xmm);
                 alloc.free(r_xmm);
             } else {
-                out << "    xorq %rax, %rax\n";
-                out << "    mov" << integer_suffixes.at(ti.bits) << " %rax, "
+                out << "    xorq   %rax, %rax\n";
+                out << "    mov" << integer_suffixes.at(ti.bits) << "   %rax, "
                     << (scp.isGlobalVariable(nm) ? nm + "(%rip)" : std::to_string(scp.getVariableOffset(nm)) + "(%rbp)")
                     << "\n";
             }
@@ -662,11 +683,9 @@ namespace zust {
         alloc.free(condR);
 
         auto ifBlock = std::move(statement->children[1]);
-        emitPrologue(ifBlock->scope, out);
         for (auto &stmt : ifBlock->children) {
             generateStatement(std::move(stmt), out);
         }
-        emitEpilogue(ifBlock->scope, out);
         out << "    jmp " << endLbl << "\n";
 
         // ELSE-IF / ELSE branches
@@ -682,20 +701,16 @@ namespace zust {
                 alloc.free(r2);
 
                 auto elifBlock = std::move(branch->children[1]);
-                emitPrologue(elifBlock->scope, out);
                 for (auto &stmt : elifBlock->children) {
                     generateStatement(std::move(stmt), out);
                 }
-                emitEpilogue(elifBlock->scope, out);
                 out << "    jmp " << endLbl << "\n";
 
             } else if (branch->type == NodeType::ElseStatement) {
                 auto elseBlock = std::move(branch->children[0]);
-                emitPrologue(elseBlock->scope, out);
                 for (auto &stmt : elseBlock->children) {
                     generateStatement(std::move(stmt), out);
                 }
-                emitEpilogue(elseBlock->scope, out);
             }
 
             branch = branch->getElseBranch();
@@ -739,7 +754,7 @@ namespace zust {
         outGlobalStream << "\n.section .rodata\n";
 
         outStream << ".text\n";
-        outStream << ".globl __stack_smash_detected\n";
+        outStream << ".global __stack_smash_detected\n";
         outStream << "__stack_smash_detected:\n";
         outStream << "    mov $60, %rax # syscall: exit\n";
         outStream << "    mov $69, %rdi # exit code\n";
@@ -784,7 +799,7 @@ namespace zust {
         std::vector<std::string> savedGPR;
         for (const auto &reg : CALLER_GPR_LINUX) {
             if (alloc.isInUse(reg)) {
-                out << "    push   %" << reg << "    # save caller-saved GPR\n";
+                out << "    push   %" << reg << "\n";
                 savedGPR.push_back(reg);
             }
         }
@@ -796,7 +811,7 @@ namespace zust {
                 auto funcScope = std::static_pointer_cast<FunctionScope>(node->scope->findEnclosingFunctionScope());
                 std::string slot = funcScope->allocateSpillSlot(16, CodegenOutputFormat::X86_64_LINUX);
                 alloc.markSpilledXMM(reg, slot);
-                out << "    movdqu %" << reg << ", " << slot << "    # save caller-saved XMM\n";
+                out << "    movdqu %" << reg << ", " << slot << "\n";
                 savedXMM.emplace_back(reg, slot);
             }
         }
@@ -832,7 +847,7 @@ namespace zust {
         }
         uint64_t stackReserve = (stackOffset + 15) & ~15ULL;
         if (stackReserve)
-            out << "    sub    $" << stackReserve << ", %rsp    # reserve stack for args\n";
+            out << "    sub    $" << stackReserve << ", %rsp\n";
 
         // emit argument moves
         gpCount = xmmCount = 0;
@@ -900,10 +915,10 @@ namespace zust {
         }
 
         // tell ABI how many float args are in XMM regs
-        out << "    mov    $" << xmmCount << ", %rax    # variadic ABI float count\n";
+        out << "    mov    $" << xmmCount << ", %rax\n";
 
         // --- Call ---
-        out << "    call   " << label << "    # function call\n";
+        out << "    call   " << label << "\n";
 
         for (std::string &reg : spilledArgumentRegs) {
             restoreIfSpilled(reg, node->scope, out);
@@ -915,16 +930,16 @@ namespace zust {
 
         // restore caller-saved XMMs
         for (auto it = savedXMM.rbegin(); it != savedXMM.rend(); ++it) {
-            out << "    movdqu " << it->second << ", %" << it->first << "    # restore XMM\n";
+            out << "    movdqu " << it->second << ", %" << it->first << "\n";
         }
         // restore caller-saved GPRs
         for (auto it = savedGPR.rbegin(); it != savedGPR.rend(); ++it) {
-            out << "    pop    %" << *it << "    # restore GPR\n";
+            out << "    pop    %" << *it << "\n";
         }
 
         // restore stack
         if (stackReserve)
-            out << "    add    $" << stackReserve << ", %rsp    # free args stack\n";
+            out << "    add    $" << stackReserve << ", %rsp\n";
 
         // return value
         bool isFloatRet = fnInfo.returnType == "float" || fnInfo.returnType == "double";
@@ -933,7 +948,7 @@ namespace zust {
         noteType(holder, node->scope->lookupType(fnInfo.returnType));
         if (isFloatRet) {
             const char *mov = fnInfo.returnType == "float" ? "movss" : "movsd";
-            out << "    " << mov << " %" << abiReg << ", %" << holder << "\n";
+            out << "    " << mov << "   %" << abiReg << ", %" << holder << "\n";
         } else {
             out << "    movq   %" << abiReg << ", %" << holder << "\n";
         }
@@ -968,36 +983,12 @@ namespace zust {
         for (size_t i = 0; i < params.size(); ++i) {
             const auto &p = params[i];
             TypeInfo ti = node->scope->lookupType(p.type);
-            bool isFloat = ti.isFloat;
-            int64_t slotOff = bodyNode->scope->getVariableOffset(p.name);
-
-            // Determine correct mov instruction
-            std::string movInst;
-            if (isFloat) {
-                movInst = (ti.bits == 64) ? "movsd" : "movss";
-            } else {
-                movInst = "mov" + std::string(1, integer_suffixes.at(64));  // "movq"
-            }
-
-            if (!isFloat && gpIdx < ARG_GPR_LINUX.size()) {
-                // integer in GPR
-                body << "    " << movInst
-                     << " %" << ARG_GPR_LINUX[gpIdx++]  // prefix register
-                     << ", " << std::to_string(slotOff) << "( %rbp)\n";
-
-            } else if (isFloat && xmmIdx < ARG_XMM_LINUX.size()) {
-                // float in XMM reg
-                body << "    " << movInst
-                     << " %" << ARG_XMM_LINUX[xmmIdx++]
-                     << ", " << std::to_string(slotOff) << "( %rbp)\n";
-
-            } else {
-                // spilled argument on caller's stack
-                uint64_t callerDisp = 16 + stackArgOffset;
-                body << "    " << movInst
-                     << " " << callerDisp << "(%rbp)"
-                     << ", " << std::to_string(slotOff) << "( %rbp)\n";
-                stackArgOffset += 8;
+            VariableInfo varInfo = VariableInfo{.type = p.type, .isValueKnown = false, .isConst = false, .value = "", .isFunctionParameter = true, .parameterInRegister = ""};
+            bodyNode->scope->defineParameter(p.name, varInfo, CodegenOutputFormat::X86_64_LINUX);
+            varInfo = bodyNode->scope->lookupVariable(p.name);
+            if (!varInfo.parameterIsOnStack) {
+                alloc.allocate_specific(varInfo.parameterInRegister);
+                noteType(varInfo.parameterInRegister, ti);
             }
         }
 
@@ -1009,9 +1000,9 @@ namespace zust {
                 generateStatement(std::move(stmt), body);
             }
         }
-        emitPrologue(funcScope, prologue);
+        emitPrologue(bodyNode->scope, prologue, !force);
         if (bodyNode->scope->returnType == "none") {
-            emitEpilogue(funcScope, body, force);
+            emitEpilogue(funcScope, body, force, !force);
         }
         out << prologue.str() + body.str();
         for (auto &nestedFn : nestedFunctions) {
@@ -1046,7 +1037,7 @@ namespace zust {
         } else {
             const char *mov = (expected.bits == 32 ? "movss" : "movsd");
             out << "    " << mov
-                << " %" << casted << ", %" << retReg << "\n";
+                << "   %" << casted << ", %" << retReg << "\n";
         }
         alloc.free(casted);
         emitEpilogue(funcScope, out);

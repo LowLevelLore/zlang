@@ -373,10 +373,10 @@ namespace zust {
             throw std::runtime_error("Unknown statement encountered.");
         }
     }
-    void CodeGenLLVM::emitEpilogue(std::shared_ptr<ScopeContext> scope, std::ostringstream &out, bool clearRax) {
+    void CodeGenLLVM::emitEpilogue(std::shared_ptr<ScopeContext> scope, std::ostringstream &out, bool clearRax, bool restoreCalleeSavedRegisters) {
         out << "    ; Block ends\n";
     }
-    void CodeGenLLVM::emitPrologue(std::shared_ptr<ScopeContext> scope, std::ostringstream &out) {
+    void CodeGenLLVM::emitPrologue(std::shared_ptr<ScopeContext> scope, std::ostringstream &out, bool savedCalleeSavedRegisters) {
     }
     void CodeGenLLVM::generateStatement(std::unique_ptr<ASTNode> statement, std::ostringstream &out) {
         switch (statement->type) {

@@ -23,6 +23,8 @@ namespace zust {
             Return,
             Dot,
             Ellipsis,
+            Asterisk,
+            Ampersand,
             If,
             ElseIf,
             Else,
@@ -96,6 +98,10 @@ namespace zust {
                 return "Return";
             case Kind::Dot:
                 return "Dot";
+            case Kind::Asterisk:
+                return "Asterisk";
+            case Kind::Ampersand:
+                return "Ampersand";
             case Kind::Ellipsis:
                 return "Ellipsis";
             }

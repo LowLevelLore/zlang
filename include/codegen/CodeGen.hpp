@@ -28,6 +28,14 @@ namespace zust {
             {"==", "sete"},
             {"!=", "setne"}};
 
+        std::map<std::string, std::string> assembly_comparison_operations_unsigned = {
+            {">=", "setae"},
+            {"<=", "setbe"},
+            {">", "seta"},
+            {"<", "setb"},
+            {"==", "sete"},
+            {"!=", "setne"}};
+
         std::unordered_map<std::string, TypeInfo> regType;
         std::uint64_t stringLabelCount = 0;
         std::uint64_t blockLabelCount = 0;
@@ -107,8 +115,8 @@ namespace zust {
 
         virtual std::string emitExpression(std::unique_ptr<ASTNode> node, std::ostringstream &out) = 0;
 
-        virtual void emitEpilogue(std::shared_ptr<ScopeContext> scope, std::ostringstream &out, bool clearRax = false) = 0;
-        virtual void emitPrologue(std::shared_ptr<ScopeContext> scope, std::ostringstream &out) = 0;
+        virtual void emitEpilogue(std::shared_ptr<ScopeContext> scope, std::ostringstream &out, bool clearRax = false, bool restoreCalleeSavedRegisters = true) = 0;
+        virtual void emitPrologue(std::shared_ptr<ScopeContext> scope, std::ostringstream &out, bool savedCalleeSavedRegisters = true) = 0;
 
         virtual std::string generateIntegerLiteral(std::unique_ptr<ASTNode> node, std::ostringstream &out) = 0;
         virtual std::string generateFloatLiteral(std::unique_ptr<ASTNode> node, std::ostringstream &out) = 0;
@@ -145,8 +153,8 @@ namespace zust {
 
         std::string emitExpression(std::unique_ptr<ASTNode> node, std::ostringstream &out) override;
 
-        void emitEpilogue(std::shared_ptr<ScopeContext> scope, std::ostringstream &out, bool clearRax = false) override;
-        void emitPrologue(std::shared_ptr<ScopeContext> scope, std::ostringstream &out) override;
+        void emitEpilogue(std::shared_ptr<ScopeContext> scope, std::ostringstream &out, bool clearRax = false, bool restoreCalleeSavedRegisters = true) override;
+        void emitPrologue(std::shared_ptr<ScopeContext> scope, std::ostringstream &out, bool savedCalleeSavedRegisters = true) override;
 
         std::string generateIntegerLiteral(std::unique_ptr<ASTNode> node, std::ostringstream &out) override;
         std::string generateFloatLiteral(std::unique_ptr<ASTNode> node, std::ostringstream &out) override;
@@ -184,8 +192,8 @@ namespace zust {
         void generateStatement(std::unique_ptr<ASTNode> statement, std::ostringstream &out) override;
         std::string emitExpression(std::unique_ptr<ASTNode> node, std::ostringstream &out) override;
 
-        void emitEpilogue(std::shared_ptr<ScopeContext> scope, std::ostringstream &out, bool clearRax = false) override;
-        void emitPrologue(std::shared_ptr<ScopeContext> scope, std::ostringstream &out) override;
+        void emitEpilogue(std::shared_ptr<ScopeContext> scope, std::ostringstream &out, bool clearRax = false, bool restoreCalleeSavedRegisters = true) override;
+        void emitPrologue(std::shared_ptr<ScopeContext> scope, std::ostringstream &out, bool savedCalleeSavedRegisters = true) override;
 
         std::string generateIntegerLiteral(std::unique_ptr<ASTNode> node, std::ostringstream &out) override;
         std::string generateFloatLiteral(std::unique_ptr<ASTNode> node, std::ostringstream &out) override;
@@ -220,8 +228,8 @@ namespace zust {
         void generateStatement(std::unique_ptr<ASTNode> statement, std::ostringstream &out) override;
         std::string emitExpression(std::unique_ptr<ASTNode> node, std::ostringstream &out) override;
 
-        void emitEpilogue(std::shared_ptr<ScopeContext> scope, std::ostringstream &out, bool clearRax = false) override;
-        void emitPrologue(std::shared_ptr<ScopeContext> scope, std::ostringstream &out) override;
+        void emitEpilogue(std::shared_ptr<ScopeContext> scope, std::ostringstream &out, bool clearRax = false, bool restoreCalleeSavedRegisters = true) override;
+        void emitPrologue(std::shared_ptr<ScopeContext> scope, std::ostringstream &out, bool savedCalleeSavedRegisters = true) override;
 
         std::string generateIntegerLiteral(std::unique_ptr<ASTNode> node, std::ostringstream &out) override;
         std::string generateFloatLiteral(std::unique_ptr<ASTNode> node, std::ostringstream &out) override;

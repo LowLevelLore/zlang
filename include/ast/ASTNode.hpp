@@ -72,5 +72,7 @@ namespace zust {
         ASTNode *getFunctionParamReturnType() const;
         ASTNode *getFunctionBody() const;
         void print(std::ostream &out, int indent = 0) const;
+        bool isLiteral() const;
+        bool isNumericLiteral() const;
     };
 }  // namespace zust

@@ -56,7 +56,7 @@ namespace zust {
         std::unique_ptr<ASTNode> initializer,
         const std::shared_ptr<ScopeContext> scope) {
         auto node = std::make_unique<ASTNode>(NodeType::VariableDeclaration, name, scope);
-        bool result = scope.get()->defineVariable(name, {typeAnnotation.get()->value});
+        bool result = scope.get()->defineParameterVariable(name, {.type = typeAnnotation.get()->value, .isValueKnown = false, .isConst = false, .value = "", .isFunctionParameter = false, .parameterIsOnStack = false, .parameterInRegister = ""});
         if (result) {
             if (typeAnnotation)
                 node->addChild(std::move(typeAnnotation));
@@ -157,7 +157,13 @@ namespace zust {
         node->children.push_back(std::move(returnType_));
         body->scope->returnType = returnType;
         for (ParamInfo pi : params) {
-            body->scope->defineVariable(pi.name, VariableInfo{.type = pi.type});
+            bool defined = body->scope->defineParameterVariable(pi.name, VariableInfo{.type = pi.type, .isValueKnown = false, .isConst = false, .value = "", .isFunctionParameter = true, .parameterIsOnStack = false, .parameterInRegister = ""});
+            if (!defined) {
+                logError(Error{ErrorType::Generic, "Redefinition of variable as function parameter"});
+                return nullptr;
+            }else{
+                
+            }
         }
         node->children.push_back(std::move(body));
         scope->defineFunction(name, FunctionInfo{.paramTypes = params, .returnType = returnType, .name = name, .label = "", .isExtern = false, .isVariadic = isVariadic});
@@ -272,4 +278,11 @@ namespace zust {
         }
     }
 
+    bool ASTNode::isLiteral() const {
+        return (this->type == NodeType::FloatLiteral || this->type == NodeType::IntegerLiteral || this->type == NodeType::StringLiteral || this->type == NodeType::BooleanLiteral);
+    }
+
+    bool ASTNode::isNumericLiteral() const {
+        return (this->type == NodeType::FloatLiteral || this->type == NodeType::IntegerLiteral || this->type == NodeType::BooleanLiteral);
+    }
 }

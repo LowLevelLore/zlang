@@ -2,6 +2,7 @@
 
 #include <assert.h>
 
+#include <algorithm>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -18,6 +19,7 @@
 #include "common/Logging.hpp"
 #include "common/StringUtils.hpp"
 #include "lexer/Lexer.hpp"
+#include "optimizer/OptmizeAST.hpp"
 #include "parser/NameMapper.hpp"
 #include "parser/Parser.hpp"
 #include "parser/ScopeContext.hpp"

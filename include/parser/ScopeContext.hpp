@@ -5,13 +5,21 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "support/CommandLine.hpp"
 
 namespace zust {
+    // TODO: Optimize parameters in function call.
     struct VariableInfo {
         std::string type;
+        bool isValueKnown = false;
+        bool isConst = false;
+        std::string value;
+        bool isFunctionParameter = false;
+        bool parameterIsOnStack = false;
+        std::string parameterInRegister;
     };
 
     struct TypeInfo {
@@ -86,9 +94,12 @@ namespace zust {
         virtual ~ScopeContext() = default;
         virtual std::string kind() const = 0;
         bool defineVariable(const std::string &name, const VariableInfo &info);
+        bool defineParameterVariable(const std::string &name, const VariableInfo &info);
+        void defineParameter(const std::string &name, VariableInfo &info, CodegenOutputFormat format);
         void defineFunction(const std::string &name, FunctionInfo info);
         void defineType(const std::string &name, const TypeInfo &info);
         VariableInfo lookupVariable(const std::string &name) const;
+        void editVariable(const std::string &name, const VariableInfo &info);
         FunctionInfo lookupFunction(const std::string &name) const;
         TypeInfo lookupType(const std::string &name) const;
         std::optional<VariableInfo>
@@ -136,6 +147,12 @@ namespace zust {
         std::string allocateSpillSlot(std::int64_t size, CodegenOutputFormat format);
         std::int64_t getSpillSize() const;
         void freeSpillSlot(const std::string &slot, std::int64_t size);
+        std::uint64_t gpCount = 0;
+        std::uint64_t xmmCount = 0;
+        std::uint64_t paramCount = 0;
+        std::unordered_map<std::string, std::string> paramLocations;
+        std::unordered_set<std::string> parameterRegisters;
+        std::unordered_set<std::string> registersInUse;
 
     private:
         std::int64_t stackOffset_;

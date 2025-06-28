@@ -65,6 +65,9 @@ namespace zust {
 
         std::string allocateArgument(uint8_t position);
         std::string allocateArgumentXMM(uint8_t position);
+
+        void allocate_specific(std::string reg);
+
         void freeArgument(const std::string &reg);
         bool freeArgumentXMM(const std::string &reg);
         bool isInUseArgument(const std::string &reg) const;
